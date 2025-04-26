@@ -1,0 +1,10 @@
+{
+  "tasks": {
+    "wasm":  "wasm-pack build ../rust/pyxel-wrapper-ts --target deno --out-dir pkg",
+    "run":   "deno run --allow-read --watch src/main.ts",
+    "dev":   "deno task wasm && deno task run"
+  }
+  "imports": {
+    "pyxel/": "./pkg/"
+  }
+}
