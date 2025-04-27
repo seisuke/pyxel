@@ -4,7 +4,16 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["staticlib"]
+
+[features]
+default = []
+static-link = []
 
 [dependencies]
-wasm-bindgen = "0.2"
+pyxel = { package = "pyxel-engine", path = "../pyxel-engine" }
+pyxel-wrapper-ts-macros = { path = "../pyxel-wrapper-ts-macros" }
+getrandom = { version = "0.3.2", default-features = false, features = ["wasm_js"] }
+
+[build-dependencies]
+syn = "2.0"

@@ -1,3 +1,6 @@
 [workspace]
 members =  ["pyxel-platform", "pyxel-engine", "pyxel-wrapper-ts"]
 resolver = "2"
+
+[workspace.dependencies]
+getrandom = { version = "0.3.2", default-features = false, features = ["wasm_js"] }

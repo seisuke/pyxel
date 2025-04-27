@@ -1,0 +1,27 @@
+#!/bin/zsh
+
+set -e
+
+pushd .
+
+cd ../rust/pyxel-wrapper-ts
+
+cargo build --release --target wasm32-unknown-emscripten --target-dir target
+
+emcc \
+    target/wasm32-unknown-emscripten/release/libpyxel_wrapper_ts.a \
+    -O0 \
+    --no-entry \
+    -s WASM=1 \
+    -s STANDALONE_WASM \
+    -s ERROR_ON_UNDEFINED_SYMBOLS=0 \
+    -s EXPORTED_FUNCTIONS=$(cat pkg/EXPORTED_FUNCTIONS.txt) \
+    -s EXPORTED_RUNTIME_METHODS="['ccall', 'cwrap']" \
+    -o pkg/pyxel_wrapper_ts.js
+
+cp pkg/pyxel_wrapper_ts.wasm ../../ts/pkg/
+cp pkg/pyxel_wrapper_ts.d.ts ../../ts/pkg/
+
+popd
+
+echo "✅ Build complete!"

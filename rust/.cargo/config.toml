@@ -1,0 +1,22 @@
+[target.wasm32-unknown-emscripten]
+rustflags = [
+  # --- SDL2 の wasm-port をリンク ----------------------------------------
+  "-C", "link-arg=-sUSE_SDL=2",
+
+  # --- 必要な記号だけ export する side-module (=2) に固定 -----------------
+  "-C", "link-arg=-sSIDE_MODULE=2",                 # ← ここ重要
+
+  #   ※ side-module=2 では emcc は EXPORTED_FUNCTIONS を **付けません**
+
+  # --- 「run / cls」以外は export させない -------------------------------
+  "-C", "link-arg=-Wl,--export=run",                # Rust 側名そのまま
+  "-C", "link-arg=-Wl,--export=cls",
+  "-C", "link-arg=-Wl,--no-export-dynamic",         # 自動 export 全停止
+
+  # --- 実行バイナリではなく “ライブラリ” としてリンク --------------------
+  "-C", "link-arg=-Wl,--no-entry",
+
+  # --- Rust→JS で呼ぶ関数(js_update/js_draw) は未解決で OK --------------
+  "-C", "link-arg=-Wl,--allow-undefined",
+  "-C", "link-arg=-sERROR_ON_UNDEFINED_SYMBOLS=0"
+]

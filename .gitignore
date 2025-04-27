@@ -2,3 +2,5 @@ dist/
 venv/
 *.pyc
 .DS_Store
+rust/pyxel-wrapper-ts/a.out.js
+rust/pyxel-wrapper-ts/a.out.wasm
