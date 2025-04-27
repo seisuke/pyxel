@@ -1,9 +1,15 @@
 {
   "tasks": {
     "build": "zsh ./build.sh",
-    "local": "deno run --allow-read src/main.ts",
-    "local_all": "deno task build && deno task run"
-    "serve": "deno run --allow-read --allow-net src/server.ts",
-    "web_all": "deno task build && deno task serve"
+    "local": "deno run --unstable --allow-read --allow-net --allow-env --allow-write --allow-run src/server.ts",
+    "local_all": "deno task build && deno task local"
+  },
+  "imports": {
+    "esbuild": "https://deno.land/x/esbuild@v0.19.11/mod.js",
+    "esbuild_deno_loader": "https://deno.land/x/esbuild_deno_loader@0.8.0/mod.ts"
+  },
+  "compilerOptions": {
+    "lib": ["dom", "esnext"],
+    "strict": true
   }
 }
