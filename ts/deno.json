@@ -1,7 +1,9 @@
 {
   "tasks": {
     "build": "zsh ./build.sh",
-    "run": "deno run --allow-read main.ts",
-    "all": "deno task build && deno task run"
+    "local": "deno run --allow-read src/main.ts",
+    "local_all": "deno task build && deno task run"
+    "serve": "deno run --allow-read --allow-net src/server.ts",
+    "web_all": "deno task build && deno task serve"
   }
 }

@@ -19,8 +19,7 @@ emcc \
     -s EXPORTED_RUNTIME_METHODS="['ccall', 'cwrap']" \
     -o pkg/pyxel_wrapper_ts.js
 
-cp pkg/pyxel_wrapper_ts.wasm ../../ts/pkg/
-cp pkg/pyxel_wrapper_ts.d.ts ../../ts/pkg/
+cp pkg/pyxel_wrapper_ts.* ../../ts/pkg/
 
 popd
 
