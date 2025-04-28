@@ -1,12 +1,13 @@
 #!/bin/zsh
-
 set -e
-
 pushd .
 
-cd ../rust/pyxel-wrapper-ts
+cd ../rust
 
-cargo build --release --target wasm32-unknown-emscripten --target-dir target
+cargo build -p pyxel-wrapper-ts --release --target wasm32-unknown-emscripten --target-dir target
+cargo run -p pyxel-wrapper-ts-bindgen
+
+cd pyxel-wrapper-ts
 
 emcc \
     target/wasm32-unknown-emscripten/release/libpyxel_wrapper_ts.a \

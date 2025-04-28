@@ -1,0 +1,17 @@
+[package]
+name = "pyxel-wrapper-ts-bindgen"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "pyxel-wrapper-ts-bindgen"
+path = "src/main.rs"
+
+[dependencies]
+pyxel-wrapper-ts-types = { path = "../pyxel-wrapper-ts-types" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+glob = "0.3"
+prettyplease = "0.2"
+syn = { version = "2.0", features = ["full"] }

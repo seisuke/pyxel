@@ -1,5 +1,5 @@
 [workspace]
-members =  ["pyxel-platform", "pyxel-engine", "pyxel-wrapper-ts"]
+members =  ["pyxel-platform", "pyxel-engine", "pyxel-wrapper-ts", "pyxel-wrapper-ts-bindgen", "pyxel-wrapper-ts-types"]
 resolver = "2"
 
 [workspace.dependencies]
