@@ -18,6 +18,7 @@ fn save_tsbind_types() {
     use std::path::Path;
 
     let modules = MODULES.lock().unwrap();
+
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let path = Path::new(&manifest_dir).join("pkg/tsbind_types.json");
 
@@ -145,7 +146,12 @@ pub fn tsfunction(_attr: TokenStream, item: TokenStream) -> TokenStream {
         if let syn::FnArg::Typed(pat) = input {
             if let syn::Pat::Ident(ident) = &*pat.pat {
                 let arg_name = ident.ident.to_string();
-                let arg_type = "number".to_string(); // 仮
+                let arg_type = match &*pat.ty {
+                    syn::Type::Path(type_path) => {
+                        type_path.path.segments.last().unwrap().ident.to_string()
+                    }
+                    _ => "any".to_string(),
+                };
                 args.push((arg_name, arg_type));
             }
         }
@@ -153,7 +159,10 @@ pub fn tsfunction(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
     let return_type = match &ast.sig.output {
         syn::ReturnType::Default => "void".to_string(),
-        syn::ReturnType::Type(_, _) => "any".to_string(), // 仮
+        syn::ReturnType::Type(_, ty) => match &**ty {
+            syn::Type::Path(type_path) => type_path.path.segments.last().unwrap().ident.to_string(),
+            _ => "any".to_string(),
+        },
     };
 
     {

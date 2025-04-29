@@ -38,38 +38,71 @@ pub fn generate() -> Result<()> {
 }
 
 fn generate_dts(modules: &[TsModule]) -> String {
+    fn rust_to_ts_type(rust_type: &str, self_type: Option<&str>) -> String {
+        match rust_type {
+            "i8" | "i16" | "i32" | "u8" | "u16" | "u32" | "f32" | "f64" => "number".to_string(),
+            "bool" => "boolean".to_string(),
+            "String" | "&str" => "string".to_string(),
+            "void" => "void".to_string(),
+            "Self" => self_type
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "any".to_string()),
+            _ => "any".to_string(),
+        }
+    }
+
     let mut lines = Vec::new();
     for m in modules {
         lines.push(format!("declare module \"{}\" {{", m.name));
-        for f in &m.functions {
-            let args = f
-                .args
-                .iter()
-                .map(|(n, t)| format!("{}: {}", n, t))
-                .collect::<Vec<_>>()
-                .join(", ");
-            lines.push(format!(
-                "  export function {}({}): {};",
-                f.name, args, f.return_type
-            ));
+        for func in &m.functions {
+            func_string =
+                format_ts_function(&func.name, &func.args, &func.return_type, None, 2, true);
+            lines.push(func_string);
         }
         for class in &m.classes {
             lines.push(format!("  export class {} {{", class.name));
             for method in &class.methods {
-                let args = method
-                    .args
-                    .iter()
-                    .map(|(n, t)| format!("{}: {}", n, t))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                lines.push(format!(
-                    "    {}({}): {};",
-                    method.name, args, method.return_type
-                ));
+                let method_string = format_ts_function(
+                    &method.name,
+                    &method.args,
+                    &method.return_type,
+                    Some(&class.name),
+                    4,
+                    false,
+                );
+                lines.push(method_string);
             }
             lines.push("  }".to_string());
         }
         lines.push("}".to_string());
     }
     lines.join("\n")
+}
+
+fn format_ts_function(
+    name: &str,
+    args: &[(String, String)],
+    return_type: &str,
+    self_type: Option<&str>,
+    indent: usize,
+    is_export: bool,
+) -> String {
+    let args_str = args
+        .iter()
+        .map(|(arg_name, arg_type)| {
+            format!("{}: {}", arg_name, rust_to_ts_type(arg_type, self_type))
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let export_prefix = if is_export { "export function " } else { "" };
+    format!(
+        "{:indent$}{}{}({}): {};",
+        "",
+        export_prefix,
+        name,
+        args_str,
+        rust_to_ts_type(return_type, self_type),
+        indent = indent,
+    )
 }

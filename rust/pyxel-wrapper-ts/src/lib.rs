@@ -6,6 +6,7 @@ mod image_wrapper;
 pub mod pyxel {
 
     use pyxel_wrapper_ts_macros::tsfunction;
+
     #[tsfunction]
     pub fn init(_width: i32, _height: i32) {
         // 省略
