@@ -4,6 +4,8 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
+use crate::generate_wrapper_rust::generate_wrapper_rust;
+
 pub fn generate() -> Result<()> {
     let project_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
     let pkg_dir = project_dir.join("pkg");
@@ -70,41 +72,4 @@ fn generate_dts(modules: &[TsModule]) -> String {
         lines.push("}".to_string());
     }
     lines.join("\n")
-}
-
-fn generate_wrapper_rust(modules: &[TsModule]) -> String {
-    let mut lines = vec!["// Auto-generated wrapper functions".to_string()];
-    for m in modules {
-        for f in &m.functions {
-            let param_list = f
-                .args
-                .iter()
-                .map(|(n, t)| format!("{}: {}", n, ts_to_rust_type(t)))
-                .collect::<Vec<_>>()
-                .join(", ");
-            let arg_names = f
-                .args
-                .iter()
-                .map(|(n, _)| n.clone())
-                .collect::<Vec<_>>()
-                .join(", ");
-            lines.push(format!(
-                "#[no_mangle]
-pub extern \"C\" fn {}({}) {{
-    crate::{}::{}({})
-}}",
-                f.name, param_list, m.name, f.name, arg_names
-            ));
-        }
-    }
-    lines.join("\n\n")
-}
-
-fn ts_to_rust_type(ts_type: &str) -> &str {
-    match ts_type {
-        "number" => "i32",
-        "boolean" => "bool",
-        "string" => "*const u8",
-        _ => "i32",
-    }
 }
