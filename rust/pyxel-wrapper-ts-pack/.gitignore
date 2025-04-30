@@ -1,0 +1,8 @@
+pkg/pyxel.ts
+pkg/pyxel_wrapper_ts.d.ts
+pkg/pyxel_wrapper_ts.js
+pkg/pyxel_wrapper_ts.wasm
+pkg/EXPORTED_FUNCTIONS.txt
+src/*
+!src/.gitempty
+/target

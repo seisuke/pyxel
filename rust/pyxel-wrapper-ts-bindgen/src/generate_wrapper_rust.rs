@@ -3,6 +3,7 @@ use pyxel_wrapper_ts_types::{TsFunction, TsModule};
 pub fn generate_wrapper_rust(modules: &[TsModule]) -> String {
     let mut code = String::new();
     code.push_str("// Auto-generated wrapper functions\n\n");
+    code.push_str("use crate::pyxel::Image;\n\n");
 
     for module in modules {
         for function in &module.functions {
@@ -38,17 +39,29 @@ pub extern \"C\" fn {fn_name}({args}) {{
 
 fn generate_class_method(module_name: &str, class_name: &str, method: &TsFunction) -> String {
     let method_name = &method.name;
-    let args = generate_rust_args(&method.args);
-    let args_call = generate_rust_arg_names(&method.args);
 
-    format!(
-        "#[no_mangle]
-pub extern \"C\" fn {class}_{method_name}({args}) {{
-    crate::{module_name}::{class}::{method_name}({args_call})
+    if method_name == "new" {
+        // コンストラクタ special case
+        let args = generate_rust_args(&method.args);
+        let args_call = generate_rust_arg_names(&method.args);
+
+        format!(
+            "#[no_mangle]
+pub extern \"C\" fn {class_name}_new({args}) -> *mut {class_name} {{
+    Box::into_raw(Box::new(crate::{module_name}::{class_name}::new({args_call})))
 }}
-",
-        class = class_name,
-    )
+"
+        )
+    } else {
+        // インスタンスメソッド（ptrを受け取る）
+        format!(
+            "#[no_mangle]
+pub extern \"C\" fn {class_name}_{method_name}(ptr: *const {class_name}) -> i32 {{
+    unsafe {{ &*ptr }}.{method_name}()
+}}
+"
+        )
+    }
 }
 
 fn generate_rust_args(args: &[(String, String)]) -> String {

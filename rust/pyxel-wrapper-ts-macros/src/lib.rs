@@ -44,6 +44,19 @@ fn get_or_create_current_module(modules: &mut Vec<TsModule>) -> &mut TsModule {
     }
 }
 
+fn get_or_create_named_module<'a>(name: &str, modules: &'a mut Vec<TsModule>) -> &'a mut TsModule {
+    if let Some(i) = modules.iter().position(|m| m.name == name) {
+        &mut modules[i]
+    } else {
+        modules.push(TsModule {
+            name: name.to_string(),
+            functions: Vec::new(),
+            classes: Vec::new(),
+        });
+        modules.last_mut().unwrap()
+    }
+}
+
 fn parse_tsmodule_name(attr: TokenStream) -> Option<String> {
     if attr.is_empty() {
         return None;
@@ -82,6 +95,30 @@ pub fn tsmodule(attr: TokenStream, item: TokenStream) -> TokenStream {
                 functions: Vec::new(),
                 classes: Vec::new(),
             });
+        }
+
+        if let Some((_, items)) = &ast.content {
+            let module = get_or_create_named_module(&mod_name, &mut modules);
+
+            for item in items {
+                match item {
+                    syn::Item::Use(_) => {
+                        continue;
+                    }
+                    syn::Item::Fn(func) => {
+                        let name = func.sig.ident.to_string();
+                        let args = extract_args(&func.sig);
+                        let return_type = extract_return_type(&func.sig.output);
+
+                        module.functions.push(TsFunction {
+                            name,
+                            args,
+                            return_type,
+                        });
+                    }
+                    _ => {}
+                }
+            }
         }
     }
 
@@ -200,4 +237,35 @@ pub fn tsfunction(_attr: TokenStream, item: TokenStream) -> TokenStream {
     save_tsbind_types();
 
     TokenStream::from(quote! { #ast })
+}
+
+fn extract_args(sig: &syn::Signature) -> Vec<(String, String)> {
+    sig.inputs
+        .iter()
+        .filter_map(|input| {
+            if let syn::FnArg::Typed(pat) = input {
+                if let syn::Pat::Ident(ident) = &*pat.pat {
+                    let name = ident.ident.to_string();
+                    let ty = match &*pat.ty {
+                        syn::Type::Path(type_path) => {
+                            type_path.path.segments.last().unwrap().ident.to_string()
+                        }
+                        _ => "any".to_string(),
+                    };
+                    return Some((name, ty));
+                }
+            }
+            None
+        })
+        .collect()
+}
+
+fn extract_return_type(output: &syn::ReturnType) -> String {
+    match output {
+        syn::ReturnType::Default => "void".to_string(),
+        syn::ReturnType::Type(_, ty) => match &**ty {
+            syn::Type::Path(type_path) => type_path.path.segments.last().unwrap().ident.to_string(),
+            _ => "any".to_string(),
+        },
+    }
 }

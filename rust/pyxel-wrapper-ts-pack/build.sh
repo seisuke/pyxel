@@ -1,0 +1,55 @@
+#!/bin/zsh
+set -e
+pushd .
+
+cd ../  # rust/ へ移動
+
+# 1. tsbind_types.json生成
+cargo build -p pyxel-wrapper-ts --release --target wasm32-unknown-emscripten --target-dir target
+
+# 2. bindgenで各種ファイル生成
+cargo run -p pyxel-wrapper-ts-bindgen
+
+cd pyxel-wrapper-ts-pack
+
+# 3. Rust + TypeScript ファイルを一括コピー・変換
+
+# *.rs のうち #[ts...] マクロを削除してコピー
+for file in ../pyxel-wrapper-ts/src/*.rs(.); do
+  name=$(basename "$file")
+  sed '/#\[ts/d' "$file" > "src/$name"
+  sed '/#\[ts/d;/use pyxel_wrapper_ts_macros::/d' "$file" > "src/$name"
+done
+
+# lib.rs に mod generated を追加
+echo '#[path = "generated.rs"]
+mod generated;' >> src/lib.rs
+
+# bindgenで生成された各種ファイルをコピー
+cp ../pyxel-wrapper-ts-bindgen/src/generated.rs src/
+cp ../pyxel-wrapper-ts-bindgen/pkg/pyxel_wrapper_ts.d.ts pkg/
+cp ../pyxel-wrapper-ts-bindgen/pkg/pyxel.ts pkg/pyxel.ts
+cp ../pyxel-wrapper-ts/pkg/EXPORTED_FUNCTIONS.txt pkg/
+
+# 4. Rust crateとしてビルド (.a生成)
+cargo build --release --target wasm32-unknown-emscripten --target-dir target
+
+# 5. emccで wasm + js 出力
+EXPORTED_FUNCTIONS=$(cat pkg/EXPORTED_FUNCTIONS.txt)
+
+emcc \
+  target/wasm32-unknown-emscripten/release/libpyxel_wrapper_ts_pack.a \
+  -O0 \
+  --no-entry \
+  -s WASM=1 \
+  -s STANDALONE_WASM \
+  -s ERROR_ON_UNDEFINED_SYMBOLS=0 \
+  -s "DEFAULT_LIBRARY_FUNCS_TO_INCLUDE=[]" \
+  -s USE_SDL=2 \
+  -s "EXPORTED_FUNCTIONS=$EXPORTED_FUNCTIONS" \
+  -s EXPORTED_RUNTIME_METHODS="['ccall', 'cwrap']" \
+  -o pkg/pyxel_wrapper_ts.js
+
+popd
+
+echo "✅ Build complete!"

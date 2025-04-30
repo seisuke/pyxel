@@ -1,5 +1,6 @@
 declare module "pyxel" {
-  export function init(_width: number, _height: number): void;
+  export function init(width: number, height: number): void;
+  export function cls(color: number): void;
   export class Image {
     new(width: number, height: number): Image;
     width(): number;

@@ -1,7 +1,7 @@
 {
   "tasks": {
     "build": "zsh ./build.sh",
-    "local": "deno run --unstable --allow-read --allow-net --allow-env --allow-write --allow-run src/server.ts",
+    "local": "deno run --allow-read --allow-net --allow-env --allow-write --allow-run ts/src/server.ts",
     "local_all": "deno task build && deno task local"
   },
   "imports": {

@@ -9,19 +9,16 @@ serve(async (req) => {
   const pathname = url.pathname === "/" ? "/index.html" : url.pathname;
   const filepath = `./pkg${pathname}`;
 
-  if (pathname.endsWith(".ts")) {
-    const inputPath = `.${pathname}`;
+  if (pathname === "/index.js") {
     const result = await esbuild.build({
-      entryPoints: [inputPath],
+      entryPoints: ["ts/src/index.ts"],
       bundle: true,
       write: false,
       format: "esm",
       platform: "browser",
     });
 
-    const jsCode = result.outputFiles[0].text;
-
-    return new Response(jsCode, {
+    return new Response(result.outputFiles[0].text, {
       headers: { "content-type": "application/javascript" },
     });
   }
