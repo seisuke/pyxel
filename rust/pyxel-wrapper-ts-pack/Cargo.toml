@@ -13,4 +13,3 @@ crate-type = ["staticlib"]
 [dependencies]
 pyxel = { package = "pyxel-engine", path = "../pyxel-engine" }
 getrandom = { version = "0.3.2", default-features = false, features = ["wasm_js"] }
-once_cell = "1.19.0"

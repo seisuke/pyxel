@@ -18,12 +18,14 @@ pub fn generate() -> Result<()> {
     let dts_path = pkg_dir.join("pyxel_wrapper_ts.d.ts");
     let rust_path = src_dir.join("generated.rs");
     let ts_path = pkg_dir.join("pyxel.ts");
+    let exported_path = pkg_dir.join("EXPORTED_FUNCTIONS.txt");
     let modules: Vec<TsModule> = if json_path.exists() {
         let data = fs::read_to_string(&json_path)?;
         serde_json::from_str(&data)?
     } else {
         vec![]
     };
+    let exported_names = collect_exported_function_names(&modules);
 
     println!(
         "Generating bindings from:\n{}",
@@ -33,8 +35,12 @@ pub fn generate() -> Result<()> {
     fs::write(&dts_path, generate_dts(&modules))?;
     fs::write(&rust_path, generate_wrapper_rust(&modules))?;
     fs::write(&ts_path, generate_pyxel_ts(&modules))?;
+    fs::write(&exported_path, serde_json::to_string(&exported_names)?)?;
 
-    println!("✅ Generated: {:?} and {:?}", dts_path, rust_path);
+    println!(
+        "✅ Generated: {:?},{:?},{:?},{:?}",
+        dts_path, rust_path, ts_path, exported_path
+    );
 
     Ok(())
 }
@@ -126,9 +132,10 @@ const ready = instancePromise.then((inst) => {
     );
 
     for module in modules {
-        for function in &module.functions {
+        lines.push("export const pyxel = {".to_string());
+        for (i, function) in module.functions.iter().enumerate() {
             lines.push(format!(
-                "export function {}({}): {} {{",
+                "  {}({}): {} {{",
                 function.name,
                 function
                     .args
@@ -139,7 +146,7 @@ const ready = instancePromise.then((inst) => {
                 rust_to_ts_type(&function.return_type, None),
             ));
             lines.push(format!(
-                "  return (instance as any).{}({});",
+                "    return (instance as any)._{}({});",
                 function.name,
                 function
                     .args
@@ -148,11 +155,38 @@ const ready = instancePromise.then((inst) => {
                     .collect::<Vec<_>>()
                     .join(", "),
             ));
-            lines.push("}".to_string());
-            lines.push("".to_string());
+            lines.push("  }".to_string());
+
+            if i != module.functions.len() - 1 {
+                lines.push(",".to_string());
+            }
         }
+        lines.push("};".to_string());
     }
 
     lines.push("export { ready };".to_string());
     lines.join("\n")
+}
+
+fn collect_exported_function_names(modules: &[TsModule]) -> Vec<String> {
+    let mut names = Vec::new();
+
+    for m in modules {
+        for func in &m.functions {
+            names.push(format!("_{}", func.name));
+        }
+
+        for class in &m.classes {
+            for method in &class.methods {
+                let symbol_name = if method.name == "new" {
+                    format!("_{}_new", class.name)
+                } else {
+                    format!("_{}_{}", class.name, method.name)
+                };
+                names.push(symbol_name);
+            }
+        }
+    }
+
+    names
 }

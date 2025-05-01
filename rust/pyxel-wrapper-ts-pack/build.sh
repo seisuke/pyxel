@@ -29,7 +29,7 @@ mod generated;' >> src/lib.rs
 cp ../pyxel-wrapper-ts-bindgen/src/generated.rs src/
 cp ../pyxel-wrapper-ts-bindgen/pkg/pyxel_wrapper_ts.d.ts pkg/
 cp ../pyxel-wrapper-ts-bindgen/pkg/pyxel.ts pkg/pyxel.ts
-cp ../pyxel-wrapper-ts/pkg/EXPORTED_FUNCTIONS.txt pkg/
+cp ../pyxel-wrapper-ts-bindgen/pkg/EXPORTED_FUNCTIONS.txt pkg/
 
 # 4. Rust crateとしてビルド (.a生成)
 cargo build --release --target wasm32-unknown-emscripten --target-dir target
@@ -39,13 +39,16 @@ EXPORTED_FUNCTIONS=$(cat pkg/EXPORTED_FUNCTIONS.txt)
 
 emcc \
   target/wasm32-unknown-emscripten/release/libpyxel_wrapper_ts_pack.a \
-  -O0 \
+  -O3 \
   --no-entry \
+  -s MODULARIZE=1 \
+  -s EXPORT_ES6=1 \
   -s WASM=1 \
   -s STANDALONE_WASM \
-  -s ERROR_ON_UNDEFINED_SYMBOLS=0 \
-  -s "DEFAULT_LIBRARY_FUNCS_TO_INCLUDE=[]" \
+  -s ENVIRONMENT=web \
   -s USE_SDL=2 \
+  -s EXCEPTION_CATCHING_ALLOWED="['*']" \
+  -s SUPPORT_LONGJMP=1 \
   -s "EXPORTED_FUNCTIONS=$EXPORTED_FUNCTIONS" \
   -s EXPORTED_RUNTIME_METHODS="['ccall', 'cwrap']" \
   -o pkg/pyxel_wrapper_ts.js
