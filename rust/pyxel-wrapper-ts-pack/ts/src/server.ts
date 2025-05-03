@@ -7,7 +7,7 @@ console.log("📡 Serving at http://localhost:8000/");
 serve(async (req) => {
   const url = new URL(req.url);
   const pathname = url.pathname === "/" ? "/index.html" : url.pathname;
-  const filepath = `./pkg${pathname}`;
+  const filepath = `./ts/pkg${pathname}`;
 
   if (pathname === "/index.js") {
     const result = await esbuild.build({
@@ -16,6 +16,9 @@ serve(async (req) => {
       write: false,
       format: "esm",
       platform: "browser",
+      logOverride: {
+        "direct-eval": "silent",  // ← これを追加
+      },
     });
 
     return new Response(result.outputFiles[0].text, {

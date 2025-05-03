@@ -27,8 +27,8 @@ mod generated;' >> src/lib.rs
 
 # bindgenで生成された各種ファイルをコピー
 cp ../pyxel-wrapper-ts-bindgen/src/generated.rs src/
-cp ../pyxel-wrapper-ts-bindgen/pkg/pyxel_wrapper_ts.d.ts pkg/
-cp ../pyxel-wrapper-ts-bindgen/pkg/pyxel.ts pkg/pyxel.ts
+cp ../pyxel-wrapper-ts-bindgen/pkg/pyxel_wrapper_ts.d.ts ts/pkg/
+cp ../pyxel-wrapper-ts-bindgen/pkg/pyxel.ts ts/pkg/
 cp ../pyxel-wrapper-ts-bindgen/pkg/EXPORTED_FUNCTIONS.txt pkg/
 
 # 4. Rust crateとしてビルド (.a生成)
@@ -51,7 +51,7 @@ emcc \
   -s SUPPORT_LONGJMP=1 \
   -s "EXPORTED_FUNCTIONS=$EXPORTED_FUNCTIONS" \
   -s EXPORTED_RUNTIME_METHODS="['ccall', 'cwrap']" \
-  -o pkg/pyxel_wrapper_ts.js
+  -o ts/pkg/pyxel_wrapper_ts.js
 
 popd
 

@@ -1,9 +1,9 @@
 {
   "tasks": {
-    "clean": "rm -rf ../target/ && rm ../pyxel-wrapper-ts/pkg/* && rm ../pyxel-wrapper-ts-bindgen/pkg/* && rm -rf target  && rm ./src/generated.rs && rm ./pkg/pyxel_wrapper_ts.* && rm ./pkg/pyxel.ts && rm ./pkg/EXPORTED_FUNCTIONS.txt"
+    "clean": "rm -rf ../target/ && rm ../pyxel-wrapper-ts/pkg/* && rm ../pyxel-wrapper-ts-bindgen/pkg/* && rm -rf target  && rm ./src/generated.rs && rm ./ts/pkg/pyxel_wrapper_ts.* && rm ./ts/pkg/pyxel.ts && rm ./pkg/EXPORTED_FUNCTIONS.txt"
     "build": "zsh ./build.sh",
-    "local": "deno run --allow-read --allow-net --allow-env --allow-write --allow-run ts/src/server.ts",
-    "local_all": "deno task build && deno task local"
+    "web": "deno run --allow-read --allow-net --allow-env --allow-write --allow-run ts/src/server.ts",
+    "web_all": "deno task build && deno task local"
   },
   "imports": {
     "esbuild": "https://deno.land/x/esbuild@v0.19.11/mod.js",
