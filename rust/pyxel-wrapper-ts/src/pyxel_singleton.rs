@@ -9,12 +9,15 @@ pub fn set_pyxel_instance(pyxel: Pyxel) {
     }
 }
 
-pub fn pyxel() -> Option<&'static mut Pyxel> {
+pub fn with_pyxel<F, R>(f: F) -> Option<R>
+where
+    F: FnOnce(&mut Pyxel) -> R,
+{
     unsafe {
         if PYXEL_INSTANCE.is_null() {
             None
         } else {
-            Some(&mut *PYXEL_INSTANCE)
+            Some(f(&mut *PYXEL_INSTANCE))
         }
     }
 }

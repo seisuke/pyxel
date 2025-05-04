@@ -1,8 +1,10 @@
+use crate::template::{DTS_TEMPLATE, PYXEL_TS_TEMPLATE};
 use anyhow::Result;
 use pyxel_wrapper_ts_types::TsModule;
 use std::env;
 use std::fs;
 use std::path::PathBuf;
+use tera::{Context, Tera};
 
 use crate::generate_wrapper_rust::generate_wrapper_rust;
 
@@ -45,159 +47,84 @@ pub fn generate() -> Result<()> {
     Ok(())
 }
 
-fn rust_to_ts_type(rust_type: &str, self_type: Option<&str>) -> String {
-    match rust_type {
-        "i8" | "i16" | "i32" | "u8" | "u16" | "u32" | "f32" | "f64" => "number".to_string(),
-        "bool" => "boolean".to_string(),
-        "String" | "&str" => "string".to_string(),
-        "void" => "void".to_string(),
-        "Self" => self_type
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| "any".to_string()),
-        _ => "any".to_string(),
+fn resolve_ts_type(rust_type: &str, self_type: Option<&str>) -> String {
+    if rust_type.starts_with("Option<") && rust_type.ends_with('>') {
+        let inner = &rust_type[7..rust_type.len() - 1];
+        let resolved = resolve_ts_type(inner, self_type);
+        format!("{} | undefined", resolved)
+    } else {
+        match rust_type {
+            "Color | Rgb24" => "number".to_string(),
+            "i8" | "i16" | "i32" | "u8" | "u16" | "u32" | "f32" | "f64" => "number".to_string(),
+            "bool" => "boolean".to_string(),
+            "String" | "str" => "string".to_string(),
+            "void" => "void".to_string(),
+            "Self" => self_type
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "any".to_string()),
+            _ => "any".to_string(),
+        }
     }
 }
 
-fn generate_dts(modules: &[TsModule]) -> String {
-    let mut lines = Vec::new();
-    for m in modules {
-        lines.push(format!("declare module \"{}\" {{", m.name));
-        lines.push("  export const pyxel: {".to_string());
+pub fn generate_dts(modules: &[TsModule]) -> String {
+    let mut tera = Tera::default();
+    tera.add_raw_template("dts", DTS_TEMPLATE).unwrap();
 
-        for func in &m.functions {
-            let func_string =
-                format_ts_function(&func.name, &func.args, &func.return_type, None, 4);
-            lines.push(func_string);
+    let mut modules = modules.to_owned();
+    for module in &mut modules {
+        for func in &mut module.functions {
+            func.args
+                .iter_mut()
+                .for_each(|(_, typ)| *typ = resolve_ts_type(typ, None));
+            func.return_type = resolve_ts_type(&func.return_type, None);
         }
-
-        for class in &m.classes {
-            lines.push(format!("    {}: {{", class.name));
-            let constructor_args = &class.methods.iter().find(|m| m.name == "new").unwrap().args;
-            let constructor_args_str = constructor_args
-                .iter()
-                .map(|(n, t)| format!("{}: {}", n, rust_to_ts_type(t, None)))
-                .collect::<Vec<_>>()
-                .join(", ");
-            lines.push(format!("      new({}): {{", constructor_args_str));
-
-            for method in &class.methods {
-                if method.name != "new" {
-                    let method_string = format_ts_function(
-                        &method.name,
-                        &method.args,
-                        &method.return_type,
-                        Some(&class.name),
-                        8,
-                    );
-                    lines.push(method_string);
-                }
+        for class in &mut module.classes {
+            for method in &mut class.methods {
+                method
+                    .args
+                    .iter_mut()
+                    .for_each(|(_, typ)| *typ = resolve_ts_type(typ, Some(&class.name)));
+                method.return_type = resolve_ts_type(&method.return_type, Some(&class.name));
             }
-            lines.push("      };".to_string());
-            lines.push("    };".to_string());
+        }
+    }
+
+    let mut context = Context::new();
+    context.insert("modules", &modules);
+
+    tera.render("dts", &context).expect("Failed to render dts")
+}
+
+pub fn generate_pyxel_ts(modules: &[TsModule]) -> String {
+    let mut tera = Tera::default();
+    tera.add_raw_template("pyxel_ts", PYXEL_TS_TEMPLATE)
+        .unwrap();
+
+    let mut modules = modules.to_owned();
+    for module in &mut modules {
+        for func in &mut module.functions {
+            func.args
+                .iter_mut()
+                .for_each(|(_, typ)| *typ = resolve_ts_type(typ, None));
+            func.return_type = resolve_ts_type(&func.return_type, None);
         }
 
-        lines.push("  };".to_string());
-        lines.push("}".to_string());
-    }
-    lines.join("\n")
-}
-
-fn format_ts_function(
-    name: &str,
-    args: &[(String, String)],
-    return_type: &str,
-    self_type: Option<&str>,
-    indent: usize,
-) -> String {
-    let args_str = args
-        .iter()
-        .map(|(arg_name, arg_type)| {
-            format!("{}: {}", arg_name, rust_to_ts_type(arg_type, self_type))
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
-
-    format!(
-        "{:indent$}{}({}): {};",
-        "",
-        name,
-        args_str,
-        rust_to_ts_type(return_type, self_type),
-        indent = indent,
-    )
-}
-
-fn generate_pyxel_ts(modules: &[TsModule]) -> String {
-    let mut lines = Vec::new();
-
-    lines.push(
-        r#"/// <reference types="./pyxel_wrapper_ts" />
-// Auto-generated by pyxel-wrapper-ts-bindgen
-import { instancePromise } from './instance.js';
-
-let instance: WebAssembly.Exports;
-const ready = instancePromise.then((inst: { exports: WebAssembly.Exports }) => {
-  instance = inst.exports;
-});
-
-"#
-        .to_string(),
-    );
-
-    for module in modules {
-        for class in &module.classes {
-            lines.push(format!("class {} {{", class.name));
-            let constructor_args = &class.methods.iter().find(|m| m.name == "new").unwrap().args;
-            let constructor_body = constructor_args
-                .iter()
-                .map(|(n, t)| format!("public {}Value: {}", n, rust_to_ts_type(t, None)))
-                .collect::<Vec<_>>()
-                .join(", ");
-            lines.push(format!("  constructor({}) {{}}", constructor_body));
-            for method in &class.methods {
-                if method.name != "new" {
-                    lines.push(format!(
-                        "  {}(): {} {{",
-                        method.name,
-                        rust_to_ts_type(&method.return_type, Some(&class.name))
-                    ));
-                    lines.push(format!("    return this.{}Value;", method.name));
-                    lines.push("  }".to_string());
-                }
+        for class in &mut module.classes {
+            for method in &mut class.methods {
+                method.args.iter_mut().for_each(|arg| {
+                    arg.1 = resolve_ts_type(&arg.1, Some(&class.name));
+                });
+                method.return_type = resolve_ts_type(&method.return_type, Some(&class.name));
             }
-            lines.push("}".to_string());
-            lines.push("".to_string());
         }
-
-        lines.push("export const pyxel: typeof import(\"pyxel\").pyxel = {".to_string());
-        for func in &module.functions {
-            let args_str = func
-                .args
-                .iter()
-                .map(|(n, t)| format!("{}: {}", n, rust_to_ts_type(t, None)))
-                .collect::<Vec<_>>()
-                .join(", ");
-            let call_args = func
-                .args
-                .iter()
-                .map(|(n, _)| n.clone())
-                .collect::<Vec<_>>()
-                .join(", ");
-            lines.push(format!("  {}({}) {{", func.name, args_str));
-            lines.push(format!(
-                "    return (instance as any)._{}({});",
-                func.name, call_args
-            ));
-            lines.push("  },".to_string());
-        }
-        for class in &module.classes {
-            lines.push(format!("  {},", class.name));
-        }
-        lines.push("};".to_string());
-        lines.push("export { ready };".to_string());
     }
 
-    lines.join("\n")
+    let mut context = Context::new();
+    context.insert("modules", &modules);
+
+    tera.render("pyxel_ts", &context)
+        .expect("Failed to render pyxel.ts")
 }
 
 fn collect_exported_function_names(modules: &[TsModule]) -> Vec<String> {

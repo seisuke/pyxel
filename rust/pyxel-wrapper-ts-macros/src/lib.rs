@@ -114,6 +114,7 @@ pub fn tsmodule(attr: TokenStream, item: TokenStream) -> TokenStream {
                             name,
                             args,
                             return_type,
+                            meta: Default::default(),
                         });
                     }
                     _ => {}
@@ -213,6 +214,7 @@ pub fn tsfunction(_attr: TokenStream, item: TokenStream) -> TokenStream {
                     name: func_name,
                     args,
                     return_type,
+                    meta: Default::default(),
                 });
             } else {
                 // 万一クラスがなければ作成
@@ -222,6 +224,7 @@ pub fn tsfunction(_attr: TokenStream, item: TokenStream) -> TokenStream {
                         name: func_name,
                         args,
                         return_type,
+                        meta: Default::default(),
                     }],
                 });
             }
@@ -230,6 +233,7 @@ pub fn tsfunction(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 name: func_name,
                 args,
                 return_type,
+                meta: Default::default(),
             });
         }
     }
@@ -246,18 +250,53 @@ fn extract_args(sig: &syn::Signature) -> Vec<(String, String)> {
             if let syn::FnArg::Typed(pat) = input {
                 if let syn::Pat::Ident(ident) = &*pat.pat {
                     let name = ident.ident.to_string();
+
                     let ty = match &*pat.ty {
-                        syn::Type::Path(type_path) => {
-                            type_path.path.segments.last().unwrap().ident.to_string()
+                        syn::Type::Path(type_path) => parse_type_path(type_path),
+                        syn::Type::Reference(reference) => {
+                            if let syn::Type::Path(type_path) = &*reference.elem {
+                                parse_type_path(type_path)
+                            } else {
+                                "any".to_string()
+                            }
                         }
                         _ => "any".to_string(),
                     };
+
                     return Some((name, ty));
                 }
             }
             None
         })
         .collect()
+}
+
+fn parse_type_path(type_path: &syn::TypePath) -> String {
+    let segments = &type_path.path.segments;
+
+    if segments.len() == 1 && segments[0].ident == "Option" {
+        // Handle Option<T>
+        if let syn::PathArguments::AngleBracketed(ref args) = segments[0].arguments {
+            if let Some(syn::GenericArgument::Type(syn::Type::Path(inner_ty_path))) =
+                args.args.first()
+            {
+                let inner = inner_ty_path
+                    .path
+                    .segments
+                    .last()
+                    .unwrap()
+                    .ident
+                    .to_string();
+                format!("Option<{}>", inner)
+            } else {
+                "Option<any>".to_string()
+            }
+        } else {
+            "Option<any>".to_string()
+        }
+    } else {
+        segments.last().unwrap().ident.to_string()
+    }
 }
 
 fn extract_return_type(output: &syn::ReturnType) -> String {

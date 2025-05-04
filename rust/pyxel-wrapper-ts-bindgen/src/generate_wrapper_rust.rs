@@ -1,79 +1,93 @@
-use pyxel_wrapper_ts_types::{TsFunction, TsModule};
+use crate::template::WRAPPER_RS_TEMPLATE;
+use pyxel_wrapper_ts_types::TsModule;
+use std::collections::HashMap;
+use tera::{Context, Function, Result as TeraResult, Tera, Value};
 
 pub fn generate_wrapper_rust(modules: &[TsModule]) -> String {
-    let mut code = String::new();
-    code.push_str("// Auto-generated wrapper functions\n\n");
-    code.push_str("use crate::pyxel::Image;\n\n");
+    let mut tera = Tera::default();
+    tera.add_raw_template("wrapper", WRAPPER_RS_TEMPLATE)
+        .expect("Failed to parse template");
+    tera.register_function("arg_type_rust", ArgTypeRustFunction);
 
-    for module in modules {
-        for function in &module.functions {
-            let fn_code = generate_function(&module.name, function);
-            code.push_str(&fn_code);
-            code.push_str("\n");
+    let mut context = Context::new();
+    let mut enriched_modules = modules.to_vec();
+    for module in &mut enriched_modules {
+        for function in &mut module.functions {
+            function.meta.insert(
+                "arg_cast_lines".to_string(),
+                arg_cast_rust_lines(&function.args).into(),
+            );
         }
-        for class in &module.classes {
-            for method in &class.methods {
-                let fn_code = generate_class_method(&module.name, &class.name, method);
-                code.push_str(&fn_code);
-                code.push_str("\n");
+    }
+    context.insert("modules", &enriched_modules);
+
+    tera.render("wrapper", &context)
+        .expect("Template render error")
+}
+
+#[derive(Debug)]
+struct ArgTypeRustFunction;
+
+impl Function for ArgTypeRustFunction {
+    fn call(&self, args: &HashMap<String, Value>) -> TeraResult<Value> {
+        let typ = args
+            .get("typ")
+            .or_else(|| args.get("_0"))
+            .unwrap()
+            .as_str()
+            .unwrap();
+        Ok(Value::String(arg_type_rust(typ).to_string()))
+    }
+
+    fn is_safe(&self) -> bool {
+        true
+    }
+}
+
+fn arg_type_rust(typ: &str) -> &str {
+    match typ {
+        "Color" | "Rgb24" => "i32",
+        "i8" | "i16" | "i32" | "u8" | "u16" | "u32" => "i32",
+        "f32" | "f64" => "f32",
+        "bool" => "bool",
+        "String" | "str" => "*const u8", // pointers for strings
+        _ => "i32",                      // default  fallback
+    }
+}
+
+fn arg_cast_rust_lines(args: &[(String, String)]) -> String {
+    let mut lines = vec![];
+
+    for (name, typ) in args {
+        match typ.as_str() {
+            "String" | "str" => {
+                lines.push(format!(
+                    r#"let c_str = unsafe {{ CStr::from_ptr({} as *const i8) }};
+let {} = match c_str.to_str() {{ Ok(s) => s, Err(_) => return, }};"#,
+                    name, name
+                ));
             }
+            "Option<bool>" => {
+                lines.push(format!(
+                    "let {} = match {} {{ 0 => Some(false), 1 => Some(true), _ => None }};",
+                    name, name
+                ));
+            }
+            "u8" | "u16" | "u32" | "i8" | "i16" => {
+                lines.push(format!(
+                    "let {} = match {}.try_into() {{ Ok(v) => v, Err(_) => return, }};",
+                    name, name
+                ));
+            }
+            "Color" | "Rgb24" => {
+                lines.push(format!(
+                    "let {} = match {}.try_into() {{ Ok(v) => v, Err(_) => return, }};",
+                    name, name
+                ));
+            }
+            _ => {}
         }
     }
 
-    code
-}
-
-fn generate_function(module_name: &str, function: &TsFunction) -> String {
-    let fn_name = &function.name;
-    let args = generate_rust_args(&function.args);
-    let args_call = generate_rust_arg_names(&function.args);
-
-    format!(
-        "#[no_mangle]
-pub extern \"C\" fn {fn_name}({args}) {{
-    crate::{module_name}::{fn_name}({args_call})
-}}
-"
-    )
-}
-
-fn generate_class_method(module_name: &str, class_name: &str, method: &TsFunction) -> String {
-    let method_name = &method.name;
-
-    if method_name == "new" {
-        // コンストラクタ special case
-        let args = generate_rust_args(&method.args);
-        let args_call = generate_rust_arg_names(&method.args);
-
-        format!(
-            "#[no_mangle]
-pub extern \"C\" fn {class_name}_new({args}) -> *mut {class_name} {{
-    Box::into_raw(Box::new(crate::{module_name}::{class_name}::new({args_call})))
-}}
-"
-        )
-    } else {
-        // インスタンスメソッド（ptrを受け取る）
-        format!(
-            "#[no_mangle]
-pub extern \"C\" fn {class_name}_{method_name}(ptr: *const {class_name}) -> i32 {{
-    unsafe {{ &*ptr }}.{method_name}()
-}}
-"
-        )
-    }
-}
-
-fn generate_rust_args(args: &[(String, String)]) -> String {
-    args.iter()
-        .map(|(name, _typ)| format!("{name}: i32")) // 仮にすべてi32
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-fn generate_rust_arg_names(args: &[(String, String)]) -> String {
-    args.iter()
-        .map(|(name, _typ)| name.clone())
-        .collect::<Vec<_>>()
-        .join(", ")
+    lines.join("\n")
 }
