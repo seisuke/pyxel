@@ -1,10 +1,11 @@
 use crate::template::{DTS_TEMPLATE, PYXEL_TS_TEMPLATE};
 use anyhow::Result;
-use pyxel_wrapper_ts_types::TsModule;
+use pyxel_wrapper_ts_types::{TsFunction, TsModule};
+use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::path::PathBuf;
-use tera::{Context, Tera};
+use tera::{Context, Tera, Value};
 
 use crate::generate_wrapper_rust::generate_wrapper_rust;
 
@@ -48,43 +49,37 @@ pub fn generate() -> Result<()> {
 }
 
 fn resolve_ts_type(rust_type: &str, self_type: Option<&str>) -> String {
-    if rust_type.starts_with("Option<") && rust_type.ends_with('>') {
-        let inner = &rust_type[7..rust_type.len() - 1];
-        let resolved = resolve_ts_type(inner, self_type);
-        format!("{} | undefined", resolved)
-    } else {
-        match rust_type {
-            "Color | Rgb24" => "number".to_string(),
-            "i8" | "i16" | "i32" | "u8" | "u16" | "u32" | "f32" | "f64" => "number".to_string(),
-            "bool" => "boolean".to_string(),
-            "String" | "str" => "string".to_string(),
-            "void" => "void".to_string(),
-            "Self" => self_type
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| "any".to_string()),
-            _ => "any".to_string(),
-        }
+    match rust_type {
+        "Color" | "Rgb24" => rust_type.to_string(),
+        "i8" | "i16" | "i32" | "u8" | "u16" | "u32" | "f32" | "f64" => "number".to_string(),
+        "bool" => "boolean".to_string(),
+        "String" | "str" => "string".to_string(),
+        "void" => "void".to_string(),
+        "Self" => self_type
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "any".to_string()),
+        _ => "any".to_string(),
     }
 }
 
 pub fn generate_dts(modules: &[TsModule]) -> String {
     let mut tera = Tera::default();
     tera.add_raw_template("dts", DTS_TEMPLATE).unwrap();
+    tera.register_filter("resolve_ts", resolve_ts_filter);
 
     let mut modules = modules.to_owned();
     for module in &mut modules {
         for func in &mut module.functions {
-            func.args
-                .iter_mut()
-                .for_each(|(_, typ)| *typ = resolve_ts_type(typ, None));
+            let ts_decl_args = generate_ts_decl_args(&func.args, None);
+            func.meta.insert("ts_decl_args".into(), ts_decl_args.into());
             func.return_type = resolve_ts_type(&func.return_type, None);
         }
         for class in &mut module.classes {
             for method in &mut class.methods {
+                let ts_decl_args = generate_ts_decl_args(&method.args, Some(&class.name));
                 method
-                    .args
-                    .iter_mut()
-                    .for_each(|(_, typ)| *typ = resolve_ts_type(typ, Some(&class.name)));
+                    .meta
+                    .insert("ts_decl_args".into(), ts_decl_args.into());
                 method.return_type = resolve_ts_type(&method.return_type, Some(&class.name));
             }
         }
@@ -96,25 +91,103 @@ pub fn generate_dts(modules: &[TsModule]) -> String {
     tera.render("dts", &context).expect("Failed to render dts")
 }
 
+fn generate_ts_decl_args(args: &[(String, String)], self_type: Option<&str>) -> String {
+    args.iter()
+        .map(|(name, ty)| {
+            if ty.starts_with("Option<") && ty.ends_with('>') {
+                let inner = ty.trim_start_matches("Option<").trim_end_matches('>');
+                format!("{}?: {}", name, resolve_ts_type(inner, self_type))
+            } else {
+                format!("{}: {}", name, resolve_ts_type(ty, self_type))
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn generate_wrapper_call(func: &TsFunction) -> String {
+    let call_args = func
+        .args
+        .iter()
+        .map(|(n, _)| n.clone())
+        .collect::<Vec<_>>()
+        .join(", ");
+    if !func.body.is_empty() {
+        let mut result = func.body.clone();
+        if func.meta.get("requires_cwrap").is_some() {
+            result.push_str(&format!("\n_fns.{}({});", func.name, call_args));
+        } else {
+            result.push_str(&format!(
+                "\nreturn (instance as any)._{}({});",
+                func.name, call_args
+            ));
+        }
+        result
+    } else {
+        format!("return (instance as any)._{}({});", func.name, call_args)
+    }
+}
+
+fn generate_proxy_definefn(func: &TsFunction) -> Option<String> {
+    if !func.meta.contains_key("requires_cwrap") {
+        return None;
+    }
+    let return_type = if func.return_type == "void" {
+        "null".to_string()
+    } else {
+        format!("\"{}\"", func.return_type)
+    };
+    let arg_types: Vec<String> = func
+        .args
+        .iter()
+        .map(|(_, typ)| {
+            if typ.contains("Option<bool>") || typ.contains("bool") {
+                "'number'".to_string()
+            } else if typ == "str" {
+                "'string'".to_string()
+            } else {
+                "'number'".to_string()
+            }
+        })
+        .collect();
+    Some(format!(
+        "if (prop === \"{}\") {{\n  return target.defineFn(\"{}\", {}, [{}]);\n}}",
+        func.name,
+        func.name,
+        return_type,
+        arg_types.join(", ")
+    ))
+}
+
+fn resolve_ts_filter(value: &Value, _: &HashMap<String, Value>) -> tera::Result<Value> {
+    match value {
+        Value::String(rust_type) => Ok(Value::String(resolve_ts_type(rust_type, None))),
+        _ => Err("Expected string".into()),
+    }
+}
+
 pub fn generate_pyxel_ts(modules: &[TsModule]) -> String {
     let mut tera = Tera::default();
+    tera.register_filter("resolve_ts", resolve_ts_filter);
     tera.add_raw_template("pyxel_ts", PYXEL_TS_TEMPLATE)
         .unwrap();
 
     let mut modules = modules.to_owned();
     for module in &mut modules {
         for func in &mut module.functions {
-            func.args
-                .iter_mut()
-                .for_each(|(_, typ)| *typ = resolve_ts_type(typ, None));
-            func.return_type = resolve_ts_type(&func.return_type, None);
+            let ts_decl_args = generate_ts_decl_args(&func.args, None);
+            func.meta.insert("ts_decl_args".into(), ts_decl_args.into());
+
+            let wrapper_call = generate_wrapper_call(func);
+            func.meta.insert("wrapper_call".into(), wrapper_call.into());
+
+            if let Some(proxy) = generate_proxy_definefn(func) {
+                func.meta.insert("proxy_definefn".into(), proxy.into());
+            }
         }
 
         for class in &mut module.classes {
             for method in &mut class.methods {
-                method.args.iter_mut().for_each(|arg| {
-                    arg.1 = resolve_ts_type(&arg.1, Some(&class.name));
-                });
                 method.return_type = resolve_ts_type(&method.return_type, Some(&class.name));
             }
         }
@@ -122,7 +195,6 @@ pub fn generate_pyxel_ts(modules: &[TsModule]) -> String {
 
     let mut context = Context::new();
     context.insert("modules", &modules);
-
     tera.render("pyxel_ts", &context)
         .expect("Failed to render pyxel.ts")
 }

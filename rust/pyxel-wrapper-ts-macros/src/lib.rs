@@ -2,10 +2,12 @@ extern crate proc_macro;
 
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::parse_macro_input;
+use syn::{parse_macro_input, Expr, ExprLit, Lit, Meta};
 
 use once_cell::sync::Lazy;
 use pyxel_wrapper_ts_types::{TsClass, TsFunction, TsModule};
+use serde_json::json;
+use std::collections::HashMap;
 use std::sync::Mutex;
 
 static MODULES: Lazy<Mutex<Vec<TsModule>>> = Lazy::new(|| Mutex::new(Vec::new()));
@@ -37,19 +39,6 @@ fn get_or_create_current_module(modules: &mut Vec<TsModule>) -> &mut TsModule {
     } else {
         modules.push(TsModule {
             name: module_name.clone(),
-            functions: Vec::new(),
-            classes: Vec::new(),
-        });
-        modules.last_mut().unwrap()
-    }
-}
-
-fn get_or_create_named_module<'a>(name: &str, modules: &'a mut Vec<TsModule>) -> &'a mut TsModule {
-    if let Some(i) = modules.iter().position(|m| m.name == name) {
-        &mut modules[i]
-    } else {
-        modules.push(TsModule {
-            name: name.to_string(),
             functions: Vec::new(),
             classes: Vec::new(),
         });
@@ -95,31 +84,6 @@ pub fn tsmodule(attr: TokenStream, item: TokenStream) -> TokenStream {
                 functions: Vec::new(),
                 classes: Vec::new(),
             });
-        }
-
-        if let Some((_, items)) = &ast.content {
-            let module = get_or_create_named_module(&mod_name, &mut modules);
-
-            for item in items {
-                match item {
-                    syn::Item::Use(_) => {
-                        continue;
-                    }
-                    syn::Item::Fn(func) => {
-                        let name = func.sig.ident.to_string();
-                        let args = extract_args(&func.sig);
-                        let return_type = extract_return_type(&func.sig.output);
-
-                        module.functions.push(TsFunction {
-                            name,
-                            args,
-                            return_type,
-                            meta: Default::default(),
-                        });
-                    }
-                    _ => {}
-                }
-            }
         }
     }
 
@@ -175,32 +139,21 @@ pub fn tsimpl(_attr: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 #[proc_macro_attribute]
-pub fn tsfunction(_attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn tsfunction(attr: TokenStream, item: TokenStream) -> TokenStream {
     let ast = parse_macro_input!(item as syn::ItemFn);
 
     let func_name = ast.sig.ident.to_string();
-    let mut args = Vec::new();
-    for input in &ast.sig.inputs {
-        if let syn::FnArg::Typed(pat) = input {
-            if let syn::Pat::Ident(ident) = &*pat.pat {
-                let arg_name = ident.ident.to_string();
-                let arg_type = match &*pat.ty {
-                    syn::Type::Path(type_path) => {
-                        type_path.path.segments.last().unwrap().ident.to_string()
-                    }
-                    _ => "any".to_string(),
-                };
-                args.push((arg_name, arg_type));
-            }
-        }
-    }
+    let args = extract_args(&ast.sig);
+    let return_type = extract_return_type(&ast.sig.output);
+    let body = parse_body_attr(attr.clone());
+    let meta = derive_function_meta(&func_name, &args);
 
-    let return_type = match &ast.sig.output {
-        syn::ReturnType::Default => "void".to_string(),
-        syn::ReturnType::Type(_, ty) => match &**ty {
-            syn::Type::Path(type_path) => type_path.path.segments.last().unwrap().ident.to_string(),
-            _ => "any".to_string(),
-        },
+    let ts_func = TsFunction {
+        name: func_name,
+        args,
+        return_type,
+        meta,
+        body,
     };
 
     {
@@ -209,38 +162,60 @@ pub fn tsfunction(_attr: TokenStream, item: TokenStream) -> TokenStream {
         let module = get_or_create_current_module(&mut modules);
 
         if let Some(ref class_name) = *current_class {
+            // ✅ クラスに既に存在するかチェックしてから methods に push
             if let Some(class) = module.classes.iter_mut().find(|c| c.name == *class_name) {
-                class.methods.push(TsFunction {
-                    name: func_name,
-                    args,
-                    return_type,
-                    meta: Default::default(),
-                });
+                if !class
+                    .methods
+                    .iter()
+                    .any(|m| m.name == ts_func.name && m.args == ts_func.args)
+                {
+                    class.methods.push(ts_func);
+                }
             } else {
-                // 万一クラスがなければ作成
+                // ✅ クラスが未登録だった場合もここで push
                 module.classes.push(TsClass {
                     name: class_name.clone(),
-                    methods: vec![TsFunction {
-                        name: func_name,
-                        args,
-                        return_type,
-                        meta: Default::default(),
-                    }],
+                    methods: vec![ts_func],
                 });
             }
         } else {
-            module.functions.push(TsFunction {
-                name: func_name,
-                args,
-                return_type,
-                meta: Default::default(),
-            });
+            // ✅ CURRENT_CLASS が None の場合に限り、モジュール直下の関数として登録
+            if !module
+                .functions
+                .iter()
+                .any(|f| f.name == ts_func.name && f.args == ts_func.args)
+            {
+                module.functions.push(ts_func);
+            }
         }
     }
 
     save_tsbind_types();
-
     TokenStream::from(quote! { #ast })
+}
+
+fn parse_body_attr(attr: TokenStream) -> String {
+    if attr.is_empty() {
+        return String::new();
+    }
+
+    let meta: Meta = match syn::parse(attr.into()) {
+        Ok(m) => m,
+        Err(_) => return String::new(),
+    };
+
+    if let Meta::NameValue(nv) = meta {
+        if nv.path.is_ident("body") {
+            if let Expr::Lit(ExprLit {
+                lit: Lit::Str(s), ..
+            }) = nv.value
+            {
+                return s.value();
+            }
+        }
+    }
+
+    String::new()
 }
 
 fn extract_args(sig: &syn::Signature) -> Vec<(String, String)> {
@@ -275,7 +250,6 @@ fn parse_type_path(type_path: &syn::TypePath) -> String {
     let segments = &type_path.path.segments;
 
     if segments.len() == 1 && segments[0].ident == "Option" {
-        // Handle Option<T>
         if let syn::PathArguments::AngleBracketed(ref args) = segments[0].arguments {
             if let Some(syn::GenericArgument::Type(syn::Type::Path(inner_ty_path))) =
                 args.args.first()
@@ -307,4 +281,21 @@ fn extract_return_type(output: &syn::ReturnType) -> String {
             _ => "any".to_string(),
         },
     }
+}
+
+fn derive_function_meta(
+    name: &str,
+    args: &[(String, String)],
+) -> HashMap<String, serde_json::Value> {
+    let mut meta = HashMap::new();
+
+    if args.iter().any(|(_, ty)| ty == "String" || ty == "str") {
+        meta.insert("requires_cwrap".to_string(), json!(true));
+    }
+
+    if name == "init" || name == "load" {
+        meta.insert("is_async".to_string(), json!(true));
+    }
+
+    meta
 }

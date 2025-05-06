@@ -7,12 +7,15 @@ mod pyxel_singleton;
 pub mod pyxel {
     pub use crate::image_wrapper::image_wrapper::Image;
     use crate::pyxel_singleton::{set_pyxel_instance, with_pyxel};
+    use pyxel_wrapper_ts_macros::tsfunction;
 
+    #[tsfunction(body = "await ready;")]
     pub fn init(width: u32, height: u32) {
         let pyxel = pyxel::init(width, height, None, None, None, None, None, None);
         set_pyxel_instance(pyxel);
     }
 
+    #[tsfunction]
     pub fn cls(color: pyxel::Color) {
         with_pyxel(|pyxel| {
             pyxel.cls(color);
@@ -21,6 +24,7 @@ pub mod pyxel {
         });
     }
 
+    #[tsfunction(body = "await fetchAndLoadResource(filename);")]
     pub fn load(
         filename: &str,
         excl_images: Option<bool>,

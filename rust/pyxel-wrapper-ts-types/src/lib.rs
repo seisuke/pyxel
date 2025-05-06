@@ -8,6 +8,9 @@ pub struct TsFunction {
     pub args: Vec<(String, String)>,
     pub return_type: String,
 
+    #[serde(skip_serializing_if = "String::is_empty", default)]
+    pub body: String,
+
     #[serde(skip_serializing_if = "HashMap::is_empty", default)]
     pub meta: HashMap<String, Value>,
 }

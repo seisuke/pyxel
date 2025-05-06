@@ -15,17 +15,19 @@ import initModule from './pyxel_wrapper_ts.js';
 
 const canvas = document.getElementById("canvas");
 
-export const instancePromise = initModule({
-  canvas
-}).then((module) => {
+export let instance;
+
+export const instancePromise = (async () => {
+  const module = await initModule({ canvas });
+  globalThis.instance = module;
+  instance = module;
   const FS = module.FS;
+  FS.mkdir(PYXEL_WORKING_DIRECTORY);
+  FS.chdir(PYXEL_WORKING_DIRECTORY);
   return {
     exports: module,
     FS,
   };
-});
+})();
 
-instancePromise.then(({ exports: _, FS }) => {
-  FS.mkdir(PYXEL_WORKING_DIRECTORY);
-  FS.chdir(PYXEL_WORKING_DIRECTORY);
-});
+export const ready = instancePromise.then(() => {});

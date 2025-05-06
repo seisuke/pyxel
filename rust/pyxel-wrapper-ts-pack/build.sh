@@ -40,15 +40,18 @@ emcc \
   target/wasm32-unknown-emscripten/release/libpyxel_wrapper_ts_pack.a \
   -O3 \
   --no-entry \
+  -s FORCE_FILESYSTEM=1 \
   -s MODULARIZE=1 \
   -s EXPORT_ES6=1 \
   -s WASM=1 \
   -s WASM_BIGINT=1 \
-  -s STANDALONE_WASM \
   -s ENVIRONMENT=web \
   -s USE_SDL=2 \
   -s EXCEPTION_CATCHING_ALLOWED="['*']" \
   -s SUPPORT_LONGJMP=1 \
+  -s INITIAL_MEMORY=64MB \
+  -s MAXIMUM_MEMORY=512MB \
+  -s ALLOW_MEMORY_GROWTH=1 \
   -s "EXPORTED_FUNCTIONS=$EXPORTED_FUNCTIONS" \
   -s EXPORTED_RUNTIME_METHODS="['ccall', 'cwrap', 'FS', 'UTF8ToString']" \
   -o ts/pkg/pyxel_wrapper_ts.js
