@@ -5,9 +5,23 @@ use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::path::PathBuf;
+use std::process::Command;
 use tera::{Context, Tera, Value};
 
 use crate::generate_wrapper_rust::generate_wrapper_rust;
+
+pub fn write_and_format<P: AsRef<std::path::Path>>(path: P, contents: &str) {
+    fs::write(&path, contents).expect("Failed to write file");
+
+    let status = Command::new("rustfmt")
+        .arg(path.as_ref())
+        .status()
+        .expect("Failed to run rustfmt");
+
+    if !status.success() {
+        eprintln!("rustfmt failed on {:?}", path.as_ref());
+    }
+}
 
 pub fn generate() -> Result<()> {
     let project_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
@@ -36,7 +50,8 @@ pub fn generate() -> Result<()> {
     );
 
     fs::write(&dts_path, generate_dts(&modules))?;
-    fs::write(&rust_path, generate_wrapper_rust(&modules))?;
+    let rendered = generate_wrapper_rust(&modules);
+    write_and_format(&rust_path, &rendered);
     fs::write(&ts_path, generate_pyxel_ts(&modules))?;
     fs::write(&exported_path, serde_json::to_string(&exported_names)?)?;
 
@@ -52,13 +67,14 @@ fn resolve_ts_type(rust_type: &str, self_type: Option<&str>) -> String {
     match rust_type {
         "Color" | "Rgb24" => rust_type.to_string(),
         "i8" | "i16" | "i32" | "u8" | "u16" | "u32" | "f32" | "f64" => "number".to_string(),
+        "usize" => "number".to_string(),
         "bool" => "boolean".to_string(),
         "String" | "str" => "string".to_string(),
         "void" => "void".to_string(),
         "Self" => self_type
             .map(|s| s.to_string())
             .unwrap_or_else(|| "any".to_string()),
-        _ => "any".to_string(),
+        _ => rust_type.to_string(),
     }
 }
 
@@ -70,8 +86,12 @@ pub fn generate_dts(modules: &[TsModule]) -> String {
     let mut modules = modules.to_owned();
     for module in &mut modules {
         for func in &mut module.functions {
-            let ts_decl_args = generate_ts_decl_args(&func.args, None);
-            func.meta.insert("ts_decl_args".into(), ts_decl_args.into());
+            if func.return_type.ends_with("List") {
+                func.meta.insert("getter_array".into(), true.into());
+            } else {
+                let ts_decl_args = generate_ts_decl_args(&func.args, None);
+                func.meta.insert("ts_decl_args".into(), ts_decl_args.into());
+            }
             func.return_type = resolve_ts_type(&func.return_type, None);
         }
         for class in &mut module.classes {
@@ -175,6 +195,11 @@ pub fn generate_pyxel_ts(modules: &[TsModule]) -> String {
     let mut modules = modules.to_owned();
     for module in &mut modules {
         for func in &mut module.functions {
+            if func.return_type.ends_with("List") {
+                func.meta.insert("getter_array".into(), true.into());
+                continue;
+            }
+
             let ts_decl_args = generate_ts_decl_args(&func.args, None);
             func.meta.insert("ts_decl_args".into(), ts_decl_args.into());
 

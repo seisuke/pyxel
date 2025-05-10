@@ -11,23 +11,25 @@ declare module "{{ module.name }}" {
    */
   type Rgb24 = number;
 
+  {%- for class in module.classes %}
+  class {{ class.name }} {
+    {%- for method in class.methods %}
+    {{ method.name }}({{ method.meta.ts_decl_args }}): {{ method.return_type }};
+    {%- endfor %}
+  }
+  {%- endfor %}
+
   export const pyxel: {
     {%- for func in module.functions %}
+    {%- if func.meta.getter_array %}
+    readonly {{ func.name }}: {{ func.return_type }};
+    {%- else %}
     {{ func.name }}({{ func.meta.ts_decl_args }}): {% if func.meta.is_async %}Promise<{{ func.return_type }}>{% else %}{{ func.return_type }}{% endif %};
+    {%- endif %}
     {%- endfor %}
 
     {%- for class in module.classes %}
-    {{ class.name }}: {
-      {%- set ctors = class.methods | filter(attribute="name", value="new") %}
-      {%- set ctor = ctors | first %}
-      new({{ ctor.meta.ts_decl_args }}): {
-        {%- for method in class.methods %}
-        {%- if method.name != "new" %}
-        {{ method.name }}(): {{ method.return_type }};
-        {%- endif %}
-        {%- endfor %}
-      };
-    };
+    {{ class.name }}: typeof {{ class.name }};
     {%- endfor %}
   };
 }
@@ -64,52 +66,41 @@ const _fns = new Proxy<Record<string, any>>({
   }
 });
 
-/**
- * Color value (0–255, corresponds to Rust's u8)
- */
-type Color = number;
-/**
- * Rgb24 value (0xRRGGBB, corresponds to Rust's u32)
- * Example: 0xff0000 for red
- */
-type Rgb24 = number;
-
-{%- for class in module.classes %}
-class {{ class.name }} {
-  {%- set ctors = class.methods | filter(attribute="name", value="new") %}
-  {%- set ctor = ctors[0] %}
-  constructor({% for arg in ctor.args %}public {{ arg.0 }}Value: {{ arg.1 | resolve_ts }}{% if not loop.last %}, {% endif %}{% endfor %}) {}
-  {%- for method in class.methods %}
-  {%- if method.name != "new" %}
-  {{ method.name }}(): {{ method.return_type }} {
-    return this.{{ method.name }}Value;
-  }
-  {%- endif %}
-  {%- endfor %}
-}
-{%- endfor %}
+let cachedImageList: any = null;
 
 export const pyxel: typeof import("{{ module.name }}").pyxel = {
   {%- for func in module.functions %}
-  {%- if func.meta.is_async %}
-  async {{ func.name }}({{ func.meta.ts_decl_args }}): Promise<{{ func.return_type }}> {
+  {%- if func.meta.getter_array %}
+    get {{ func.name }}(): {{ func.return_type }} {
+      if (!cachedImageList) {
+        const ptr = (instance as any)._{{ func.name }}();
+        cachedImageList = new ImageList(ptr);
+      }
+      return cachedImageList;
+    },
+  {%- elif func.meta.is_async %}
+    async {{ func.name }}({{ func.meta.ts_decl_args }}): Promise<{{ func.return_type }}> {
+      {{ func.meta.wrapper_call }}
+    },
   {%- else %}
-  {{ func.name }}({{ func.meta.ts_decl_args }}): {{ func.return_type }} {
+    {{ func.name }}({{ func.meta.ts_decl_args }}): {{ func.return_type }} {
+      {{ func.meta.wrapper_call }}
+    },
   {%- endif %}
-  {{ func.meta.wrapper_call }}
-  },
   {%- endfor %}
   {%- for class in module.classes %}
-  {{ class.name }},
+  {{ class.name }}: typeof {{ class.name }};
   {%- endfor %}
 };
 {%- endfor %}
+
 export { ready };"#;
 
 pub const WRAPPER_RS_TEMPLATE: &str = r#"// Auto-generated wrapper functions
 
 use std::ffi::CStr;
-use crate::pyxel::Image;
+use crate::image_wrapper::image_wrapper::Image;
+use crate::resouce_wrapper::resouce_wrapper::ImageList;
 
 {%- for module in modules %}
 {%- for function in module.functions %}
@@ -118,12 +109,16 @@ pub extern "C" fn {{ function.name }}(
     {%- for arg in function.args %}
     {{ arg.0 }}: {{ arg_type_rust(typ=arg.1) }}{% if not loop.last %}, {% endif %}
     {%- endfor %}
-) {
+) -> {% if function.return_type == "void" %}() {% else %}{{ function.return_type }}{% endif %} {
     {%- if function.meta.arg_cast_lines %}
     {{ function.meta.arg_cast_lines }}
     {%- endif %}
-    crate::{{ module.name }}::{{ function.name }}(
-        {%- for arg in function.args %}{{ arg.0 }}{% if not loop.last %}, {% endif %}{%- endfor %})
+
+    {%- if function.meta.custom_return %}
+    {{ function.meta.custom_return  }}
+    {%- else %}
+    crate::{{ module.name }}::{{ function.name }}({%- for arg in function.args %}{{ arg.0 }}{% if not loop.last %}, {% endif %}{%- endfor %})
+    {%- endif %}
 }
 {%- endfor %}
 
@@ -136,16 +131,37 @@ pub extern "C" fn {{ class.name }}_new(
     {{ arg.0 }}: {{ arg_type_rust(typ=arg.1) }}{% if not loop.last %}, {% endif %}
     {%- endfor %}
 ) -> *mut {{ class.name }} {
+
     {%- if method.meta.arg_cast_lines %}
     {{ method.meta.arg_cast_lines }}
     {%- endif %}
-    Box::into_raw(Box::new(crate::{{ module.name }}::{{ class.name }}::new(
-        {%- for arg in method.args %}{{ arg.0 }}{% if not loop.last %}, {% endif %}{%- endfor %})))
+
+    let instance = {{ class.name }}::new(
+        {%- for arg in method.args %}{{ arg.0 }}{% if not loop.last %}, {% endif %}{%- endfor %}
+    );
+
+    Box::into_raw(Box::new(instance))
 }
 {%- else %}
 #[no_mangle]
-pub extern "C" fn {{ class.name }}_{{ method.name }}(ptr: *const {{ class.name }}) -> i32 {
-    unsafe { &*ptr }.{{ method.name }}()
+pub extern "C" fn {{ class.name }}_{{ method.name }}(ptr: *const {{ class.name }}, {% if method.name == "get" %} index: usize{% endif %}) -> {{ method.return_type }} {
+    {%- if method.name != "get" %} 
+    let value = unsafe { &*ptr }.{{ method.name }}();
+    {%- else %}
+    let list = unsafe { &*ptr };
+    if index >= list.len() {
+        return std::ptr::null_mut();
+    }
+
+    let item = list.get(index);
+    Box::into_raw(Box::new(item))
+    {%- endif %}
+    {%- if method.return_type == "u32" %}
+    value.try_into().unwrap_or(u32::MAX)
+    {%- elif method.name == "get" %} 
+    {%- else %}
+    value
+    {%- endif %}
 }
 {%- endif %}
 {%- endfor %}

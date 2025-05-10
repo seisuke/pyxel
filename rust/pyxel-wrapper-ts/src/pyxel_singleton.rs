@@ -1,5 +1,5 @@
 use core::ptr::null_mut;
-use pyxel::Pyxel;
+use engine::Pyxel;
 
 static mut PYXEL_INSTANCE: *mut Pyxel = null_mut();
 
@@ -19,5 +19,14 @@ where
         } else {
             Some(f(&mut *PYXEL_INSTANCE))
         }
+    }
+}
+
+pub fn pyxel() -> &'static mut Pyxel {
+    unsafe {
+        if PYXEL_INSTANCE.is_null() {
+            panic!("Pyxel instance is not initialized");
+        }
+        &mut *PYXEL_INSTANCE
     }
 }

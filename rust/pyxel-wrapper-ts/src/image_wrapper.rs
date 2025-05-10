@@ -6,27 +6,31 @@ pub mod image_wrapper {
 
     #[tsclass]
     #[allow(dead_code)]
+    #[derive(Clone)]
     pub struct Image {
-        width: i32,
-        height: i32,
+        pub(crate) inner: engine::SharedImage,
     }
 
     #[tsimpl]
     #[allow(dead_code)]
     impl Image {
-        #[tsfunction]
-        pub fn new(width: i32, height: i32) -> Self {
-            Self { width, height }
+        pub fn wrap(inner: engine::SharedImage) -> Self {
+            Self { inner }
         }
 
         #[tsfunction]
-        pub fn width(&self) -> i32 {
-            self.width
+        pub fn new(width: u32, height: u32) -> Self {
+            Self::wrap(engine::Image::new(width, height))
         }
 
         #[tsfunction]
-        pub fn height(&self) -> i32 {
-            self.height
+        pub fn width(&self) -> u32 {
+            self.inner.lock().width()
+        }
+
+        #[tsfunction]
+        pub fn height(&self) -> u32 {
+            self.inner.lock().height()
         }
     }
 }

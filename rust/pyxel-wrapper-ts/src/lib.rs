@@ -2,26 +2,35 @@ use pyxel_wrapper_ts_macros::tsmodule;
 
 mod image_wrapper;
 mod pyxel_singleton;
+mod resouce_wrapper;
 
 #[tsmodule]
 pub mod pyxel {
     pub use crate::image_wrapper::image_wrapper::Image;
-    use crate::pyxel_singleton::{set_pyxel_instance, with_pyxel};
+    use crate::{
+        pyxel_singleton::{set_pyxel_instance, with_pyxel},
+        resouce_wrapper::resouce_wrapper::ImageList,
+    };
     use pyxel_wrapper_ts_macros::tsfunction;
 
     #[tsfunction(body = "await ready;")]
     pub fn init(width: u32, height: u32) {
-        let pyxel = pyxel::init(width, height, None, None, None, None, None, None);
+        let pyxel = engine::init(width, height, None, None, None, None, None, None);
         set_pyxel_instance(pyxel);
     }
 
     #[tsfunction]
-    pub fn cls(color: pyxel::Color) {
+    pub fn cls(color: engine::Color) {
         with_pyxel(|pyxel| {
             pyxel.cls(color);
             pyxel.circb(30.0, 30.0, 20.0, 7);
             pyxel.show();
         });
+    }
+
+    #[tsfunction]
+    pub fn images() -> ImageList {
+        ImageList::wrap(0)
     }
 
     #[tsfunction(body = "await fetchAndLoadResource(filename);")]

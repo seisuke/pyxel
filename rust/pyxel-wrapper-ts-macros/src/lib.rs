@@ -222,22 +222,10 @@ fn extract_args(sig: &syn::Signature) -> Vec<(String, String)> {
     sig.inputs
         .iter()
         .filter_map(|input| {
-            if let syn::FnArg::Typed(pat) = input {
-                if let syn::Pat::Ident(ident) = &*pat.pat {
+            if let syn::FnArg::Typed(pat_type) = input {
+                if let syn::Pat::Ident(ident) = &*pat_type.pat {
                     let name = ident.ident.to_string();
-
-                    let ty = match &*pat.ty {
-                        syn::Type::Path(type_path) => parse_type_path(type_path),
-                        syn::Type::Reference(reference) => {
-                            if let syn::Type::Path(type_path) = &*reference.elem {
-                                parse_type_path(type_path)
-                            } else {
-                                "any".to_string()
-                            }
-                        }
-                        _ => "any".to_string(),
-                    };
-
+                    let ty = resolve_type(&*pat_type.ty);
                     return Some((name, ty));
                 }
             }
@@ -246,40 +234,33 @@ fn extract_args(sig: &syn::Signature) -> Vec<(String, String)> {
         .collect()
 }
 
-fn parse_type_path(type_path: &syn::TypePath) -> String {
-    let segments = &type_path.path.segments;
-
-    if segments.len() == 1 && segments[0].ident == "Option" {
-        if let syn::PathArguments::AngleBracketed(ref args) = segments[0].arguments {
-            if let Some(syn::GenericArgument::Type(syn::Type::Path(inner_ty_path))) =
-                args.args.first()
-            {
-                let inner = inner_ty_path
-                    .path
-                    .segments
-                    .last()
-                    .unwrap()
-                    .ident
-                    .to_string();
-                format!("Option<{}>", inner)
-            } else {
-                "Option<any>".to_string()
-            }
-        } else {
-            "Option<any>".to_string()
-        }
-    } else {
-        segments.last().unwrap().ident.to_string()
-    }
-}
-
 fn extract_return_type(output: &syn::ReturnType) -> String {
     match output {
         syn::ReturnType::Default => "void".to_string(),
-        syn::ReturnType::Type(_, ty) => match &**ty {
-            syn::Type::Path(type_path) => type_path.path.segments.last().unwrap().ident.to_string(),
-            _ => "any".to_string(),
-        },
+        syn::ReturnType::Type(_, ty) => resolve_type(ty),
+    }
+}
+
+fn resolve_type(ty: &syn::Type) -> String {
+    match ty {
+        syn::Type::Reference(reference) => resolve_type(&reference.elem),
+        syn::Type::Path(type_path) => {
+            let segments = &type_path.path.segments;
+            let segment = segments.last().unwrap();
+            let ident = segment.ident.to_string();
+
+            if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
+                if (ident == "Option") || (ident == "Vec") {
+                    if let Some(syn::GenericArgument::Type(inner_ty)) = args.args.first() {
+                        let inner = resolve_type(inner_ty);
+                        return format!("{}<{}>", ident, inner);
+                    }
+                }
+            }
+
+            ident
+        }
+        _ => "any".to_string(),
     }
 }
 

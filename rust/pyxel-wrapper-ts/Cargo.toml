@@ -11,7 +11,7 @@ default = []
 static-link = []
 
 [dependencies]
-pyxel = { package = "pyxel-engine", path = "../pyxel-engine" }
+engine = { package = "pyxel-engine", path = "../pyxel-engine" }
 pyxel-wrapper-ts-macros = { path = "../pyxel-wrapper-ts-macros" }
 getrandom = { version = "0.3.2", default-features = false, features = ["wasm_js"] }
 once_cell = "1.19.0"

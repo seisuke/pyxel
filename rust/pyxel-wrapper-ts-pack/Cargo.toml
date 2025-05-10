@@ -11,5 +11,5 @@ repository = "https://github.com/seisuke/pyxel"
 crate-type = ["staticlib"]
 
 [dependencies]
-pyxel = { package = "pyxel-engine", path = "../pyxel-engine" }
+engine = { package = "pyxel-engine", path = "../pyxel-engine" }
 getrandom = { version = "0.3.2", default-features = false, features = ["wasm_js"] }
