@@ -27,7 +27,6 @@ mod generated;' >> src/lib.rs
 
 # bindgenで生成された各種ファイルをコピー
 cp ../pyxel-wrapper-ts-bindgen/src/generated.rs src/
-cp ../pyxel-wrapper-ts-bindgen/pkg/pyxel_wrapper_ts.d.ts ts/pkg/
 cp ../pyxel-wrapper-ts-bindgen/pkg/pyxel.ts ts/pkg/
 cp ../pyxel-wrapper-ts-bindgen/pkg/EXPORTED_FUNCTIONS.txt pkg/
 

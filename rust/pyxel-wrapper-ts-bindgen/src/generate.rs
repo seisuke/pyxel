@@ -1,4 +1,4 @@
-use crate::template::{DTS_TEMPLATE, PYXEL_TS_TEMPLATE};
+use crate::template::PYXEL_TS_TEMPLATE;
 use anyhow::Result;
 use pyxel_wrapper_ts_types::{TsFunction, TsModule};
 use std::collections::HashMap;
@@ -32,7 +32,6 @@ pub fn generate() -> Result<()> {
         .parent()
         .unwrap()
         .join("pyxel-wrapper-ts/pkg/tsbind_types.json");
-    let dts_path = pkg_dir.join("pyxel_wrapper_ts.d.ts");
     let rust_path = src_dir.join("generated.rs");
     let ts_path = pkg_dir.join("pyxel.ts");
     let exported_path = pkg_dir.join("EXPORTED_FUNCTIONS.txt");
@@ -49,15 +48,14 @@ pub fn generate() -> Result<()> {
         serde_json::to_string_pretty(&modules)?
     );
 
-    fs::write(&dts_path, generate_dts(&modules))?;
     let rendered = generate_wrapper_rust(&modules);
     write_and_format(&rust_path, &rendered);
     fs::write(&ts_path, generate_pyxel_ts(&modules))?;
     fs::write(&exported_path, serde_json::to_string(&exported_names)?)?;
 
     println!(
-        "✅ Generated: {:?},{:?},{:?},{:?}",
-        dts_path, rust_path, ts_path, exported_path
+        "✅ Generated: {:?},{:?},{:?}",
+        rust_path, ts_path, exported_path
     );
 
     Ok(())
@@ -76,39 +74,6 @@ fn resolve_ts_type(rust_type: &str, self_type: Option<&str>) -> String {
             .unwrap_or_else(|| "any".to_string()),
         _ => rust_type.to_string(),
     }
-}
-
-pub fn generate_dts(modules: &[TsModule]) -> String {
-    let mut tera = Tera::default();
-    tera.add_raw_template("dts", DTS_TEMPLATE).unwrap();
-    tera.register_filter("resolve_ts", resolve_ts_filter);
-
-    let mut modules = modules.to_owned();
-    for module in &mut modules {
-        for func in &mut module.functions {
-            if func.return_type.ends_with("List") {
-                func.meta.insert("getter_array".into(), true.into());
-            } else {
-                let ts_decl_args = generate_ts_decl_args(&func.args, None);
-                func.meta.insert("ts_decl_args".into(), ts_decl_args.into());
-            }
-            func.return_type = resolve_ts_type(&func.return_type, None);
-        }
-        for class in &mut module.classes {
-            for method in &mut class.methods {
-                let ts_decl_args = generate_ts_decl_args(&method.args, Some(&class.name));
-                method
-                    .meta
-                    .insert("ts_decl_args".into(), ts_decl_args.into());
-                method.return_type = resolve_ts_type(&method.return_type, Some(&class.name));
-            }
-        }
-    }
-
-    let mut context = Context::new();
-    context.insert("modules", &modules);
-
-    tera.render("dts", &context).expect("Failed to render dts")
 }
 
 fn generate_ts_decl_args(args: &[(String, String)], self_type: Option<&str>) -> String {
@@ -214,6 +179,13 @@ pub fn generate_pyxel_ts(modules: &[TsModule]) -> String {
         for class in &mut module.classes {
             for method in &mut class.methods {
                 method.return_type = resolve_ts_type(&method.return_type, Some(&class.name));
+
+                if !method.meta.contains_key("ts_decl_args") {
+                    let ts_decl_args = generate_ts_decl_args(&method.args, Some(&class.name));
+                    method
+                        .meta
+                        .insert("ts_decl_args".into(), ts_decl_args.into());
+                }
             }
         }
     }

@@ -28,24 +28,6 @@ fn save_tsbind_types() {
     let _ = fs::write(&path, &json);
 }
 
-fn get_or_create_current_module(modules: &mut Vec<TsModule>) -> &mut TsModule {
-    let module_name = {
-        let current = CURRENT_MODULE.lock().unwrap();
-        current.clone().expect("No current module set")
-    };
-
-    if let Some(i) = modules.iter().position(|m| m.name == module_name) {
-        &mut modules[i]
-    } else {
-        modules.push(TsModule {
-            name: module_name.clone(),
-            functions: Vec::new(),
-            classes: Vec::new(),
-        });
-        modules.last_mut().unwrap()
-    }
-}
-
 fn parse_tsmodule_name(attr: TokenStream) -> Option<String> {
     if attr.is_empty() {
         return None;
@@ -90,6 +72,9 @@ pub fn tsmodule(attr: TokenStream, item: TokenStream) -> TokenStream {
     {
         let mut current_module = CURRENT_MODULE.lock().unwrap();
         *current_module = Some(mod_name);
+
+        let mut current_class = CURRENT_CLASS.lock().unwrap();
+        *current_class = None;
     }
 
     save_tsbind_types();
@@ -104,13 +89,16 @@ pub fn tsclass(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
     {
         let mut modules = MODULES.lock().unwrap();
-        let module = get_or_create_current_module(&mut modules);
+        let current_module = CURRENT_MODULE.lock().unwrap();
+        let module_name = current_module.clone().expect("No current module set");
 
-        if !module.classes.iter().any(|c| c.name == class_name) {
-            module.classes.push(TsClass {
-                name: class_name.clone(),
-                methods: Vec::new(),
-            });
+        if let Some(module) = modules.iter_mut().find(|m| m.name == module_name) {
+            if !module.classes.iter().any(|c| c.name == class_name) {
+                module.classes.push(TsClass {
+                    name: class_name.clone(),
+                    methods: Vec::new(),
+                });
+            }
         }
     }
 
@@ -130,11 +118,27 @@ pub fn tsimpl(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
     if let syn::Type::Path(type_path) = ast.self_ty.as_ref() {
         if let Some(ident) = type_path.path.get_ident() {
+            let class_name = ident.to_string();
+
+            let mut modules = MODULES.lock().unwrap();
+            let current_module = CURRENT_MODULE.lock().unwrap();
+            let module_name = current_module.clone().expect("No current module set");
+
+            if let Some(module) = modules.iter_mut().find(|m| m.name == module_name) {
+                if !module.classes.iter().any(|c| c.name == class_name) {
+                    module.classes.push(TsClass {
+                        name: class_name.clone(),
+                        methods: Vec::new(),
+                    });
+                }
+            }
+
             let mut current_class = CURRENT_CLASS.lock().unwrap();
-            *current_class = Some(ident.to_string());
+            *current_class = Some(class_name);
         }
     }
 
+    save_tsbind_types();
     TokenStream::from(quote! { #ast })
 }
 
@@ -158,35 +162,21 @@ pub fn tsfunction(attr: TokenStream, item: TokenStream) -> TokenStream {
 
     {
         let mut modules = MODULES.lock().unwrap();
-        let current_class = CURRENT_CLASS.lock().unwrap();
-        let module = get_or_create_current_module(&mut modules);
+        let current_module = CURRENT_MODULE.lock().unwrap();
+        let module_name = current_module.clone().expect("No current module set");
+        let module = modules
+            .iter_mut()
+            .find(|m| m.name == module_name)
+            .expect("Module not found");
 
-        if let Some(ref class_name) = *current_class {
-            // ✅ クラスに既に存在するかチェックしてから methods に push
+        let current_class = CURRENT_CLASS.lock().unwrap();
+
+        if let Some(class_name) = &*current_class {
             if let Some(class) = module.classes.iter_mut().find(|c| c.name == *class_name) {
-                if !class
-                    .methods
-                    .iter()
-                    .any(|m| m.name == ts_func.name && m.args == ts_func.args)
-                {
-                    class.methods.push(ts_func);
-                }
-            } else {
-                // ✅ クラスが未登録だった場合もここで push
-                module.classes.push(TsClass {
-                    name: class_name.clone(),
-                    methods: vec![ts_func],
-                });
+                class.methods.push(ts_func);
             }
         } else {
-            // ✅ CURRENT_CLASS が None の場合に限り、モジュール直下の関数として登録
-            if !module
-                .functions
-                .iter()
-                .any(|f| f.name == ts_func.name && f.args == ts_func.args)
-            {
-                module.functions.push(ts_func);
-            }
+            module.functions.push(ts_func);
         }
     }
 
